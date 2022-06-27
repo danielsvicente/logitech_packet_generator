@@ -23,6 +23,7 @@ namespace Logi
                 case PacketType::StartDataTransfer: return "StartDataTransfer";
                 case PacketType::StopDataTransfer:  return "StopDataTransfer";
                 }
+                return "";
             };
 
             os << "software id: " << "0x" << std::setfill('0') << std::setw(2) << std::uppercase << std::hex << +header.softwareId << "\n";
