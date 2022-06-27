@@ -9,6 +9,7 @@ set(CMAKE_CXX_FLAGS "-Wall")
 include_directories(${PROJECT_SOURCE_DIR}/src)
 
 add_library(PacketGenerator STATIC 
+    src/ConsolePrinter.cpp    
     src/PacketGenerator.cpp    
     src/Utils.cpp    
 )

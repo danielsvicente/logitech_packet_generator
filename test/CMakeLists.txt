@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 
 add_executable(PacketGeneratorUnitTest
-    AppTest.cpp   
+    PacketGeneratorTest.cpp   
 )
 
 target_include_directories(PacketGeneratorUnitTest PRIVATE ../src ../lib)

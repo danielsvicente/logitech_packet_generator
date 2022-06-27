@@ -1,11 +1,14 @@
 #include "../src/PacketGenerator.hpp"
 #include "../src/Packet.hpp"
 #include "../src/Utils.hpp"
+#include "../src/IPrinter.hpp"
 
 #define CATCH_CONFIG_MAIN
 #include "catch.hpp"
+#include "trompeloeil.hpp"
 
 #include <vector>
+#include <string_view>
 
 using namespace Logi;
 
@@ -46,11 +49,26 @@ namespace{
         std::cout << "Packet " << std::to_integer<int>(packet->header.sequenceId_0);
         std::cout << hexDump(p, size);
     }
+
+    class PrinterMock : public trompeloeil::mock_interface<IPrinter>
+    {
+        IMPLEMENT_MOCK1(print);
+    };
+
+    class TestFixture
+    {
+    public:
+        TestFixture() : printer{}, generator{52, printer} {}
+    protected:
+        PrinterMock printer;
+        PacketGenerator generator;
+    };
+
 }
 
-TEST_CASE("Create packets for 1-byte buffer")
+TEST_CASE_METHOD(TestFixture, "Create packets for 1-byte buffer")
 {
-    PacketGenerator generator{52};
+    // PacketGenerator generator{52};
 
     auto buffer = generateRandomBuffer(1); //1bytes
     REQUIRE(buffer.size() == 1);
@@ -94,9 +112,9 @@ TEST_CASE("Create packets for 1-byte buffer")
     CHECK(packet2.flags == 0b00000111);
 }
 
-TEST_CASE("Create packets for 1K-byte buffer")
+TEST_CASE_METHOD(TestFixture, "Create packets for 1K-byte buffer")
 {
-    PacketGenerator generator{255};
+    // PacketGenerator generator{255};
 
     auto buffer = generateRandomBuffer(1000); //1000bytes
     REQUIRE(buffer.size() == 1000);
@@ -113,9 +131,8 @@ TEST_CASE("Create packets for 1K-byte buffer")
     // Check first packet -> StartDataTransferPacket
     REQUIRE_NOTHROW(std::get<StartDataTransferPacket>(packets.at(0)));
     auto packet0 = std::get<StartDataTransferPacket>(packets.at(0));
-    // dumpPacket(&packet0, 8);
     CHECK(packet0.header.packetType == static_cast<uint8_t>(PacketType::StartDataTransfer));
-    CHECK(packet0.header.softwareId == 0xFF);
+    CHECK(packet0.header.softwareId == 0x34);
     CHECK(packet0.header.sequenceId_0 == 0x00);
     CHECK(packet0.header.sequenceId_1 == 0x00);
     CHECK(packet0.totalPayloadSize_0 == 0xE8);
@@ -129,8 +146,7 @@ TEST_CASE("Create packets for 1K-byte buffer")
     {
         REQUIRE_NOTHROW(std::get<DataPacket>(packets.at(sequenceId)));
         auto packetData = std::get<DataPacket>(packets.at(sequenceId));
-        // dumpPacket(&packetData, 64);
-        CHECK(packetData.header.softwareId == 0xFF);
+        CHECK(packetData.header.softwareId == 0x34);
         CHECK(packetData.header.sequenceId_0 == sequenceId);
         CHECK(packetData.header.sequenceId_1 == 0x00);
         CHECK(packetData.header.packetType == static_cast<uint8_t>(PacketType::Data));
@@ -142,8 +158,7 @@ TEST_CASE("Create packets for 1K-byte buffer")
     // Check last DataPacket
     REQUIRE_NOTHROW(std::get<DataPacket>(packets.at(17)));
     auto packetData = std::get<DataPacket>(packets.at(17));
-    // dumpPacket(&packetData, 61);
-    CHECK(packetData.header.softwareId == 0xFF);
+    CHECK(packetData.header.softwareId == 0x34);
     CHECK(packetData.header.sequenceId_0 == 17);
     CHECK(packetData.header.sequenceId_1 == 0x00);
     CHECK(packetData.header.packetType == static_cast<uint8_t>(PacketType::Data));
@@ -156,8 +171,7 @@ TEST_CASE("Create packets for 1K-byte buffer")
     // Check StopDataTransferPacket
     REQUIRE_NOTHROW(std::get<StopDataTransferPacket>(packets.at(18)));
     auto packet18 = std::get<StopDataTransferPacket>(packets.at(18));
-    // dumpPacket(&packetData, 61);
-    CHECK(packet18.header.softwareId == 0xFF);
+    CHECK(packet18.header.softwareId == 0x34);
     CHECK(packet18.header.sequenceId_0 == 0x12);
     CHECK(packet18.header.sequenceId_1 == 0x00);
     CHECK(packet18.header.packetType == static_cast<uint8_t>(PacketType::StopDataTransfer));
@@ -174,12 +188,13 @@ TEST_CASE("Generator swaps bytes if host machine is big endian")
     // is big endian, we can invert the requirement, since we cannot change the
     // host endianess.
 
-    auto generator = std::make_unique<PacketGenerator>(1, Endianess::BigEndian);
+    PrinterMock printer;
+    PacketGenerator generator {1, Endianess::BigEndian, printer};
 
     auto buffer = generateRandomBuffer(291); // 291 bytes
     REQUIRE(buffer.size() == 291);
 
-    auto packets = generator->createPackets(buffer, {});
+    auto packets = generator.createPackets(buffer, {});
 
     // With buffer size 291 bytes, function should return 7 packets
     CHECK(packets.size() == 7);
@@ -205,12 +220,62 @@ TEST_CASE("Generator swaps bytes if host machine is big endian")
     auto packet6 = std::get<StopDataTransferPacket>(packets.at(6));
     CHECK(packet6.header.sequenceId_0 == 0x00);
     CHECK(packet6.header.sequenceId_1 == 0x06);
-
-
-
 }
 
-// TEST_CASE("Print packets")
-// {
-//     CHECK(false);
-// }
+TEST_CASE_METHOD(TestFixture, "Reset sequenceId to 0x0000 after 0xffff")
+{
+    // To reach the last sequence Id, we need to generate 65536 packets
+    // 65536 - 2 = 65534 => 65534 * 59 = 3866506 bytes (input buffer)
+    auto buffer = generateRandomBuffer(3866506);
+    REQUIRE(buffer.size() == 3866506);
+
+    auto packets = generator.createPackets(buffer, {});
+
+    // Check last sequenceId
+    REQUIRE_NOTHROW(std::get<StopDataTransferPacket>(packets.back()));
+    auto lastPkt = std::get<StopDataTransferPacket>(packets.back());
+    CHECK(+lastPkt.header.sequenceId_0 == 0xFF);
+    CHECK(+lastPkt.header.sequenceId_1 == 0xFF);
+
+    // Now create more packets to verify the sequence Id is reset
+    buffer = generateRandomBuffer(59);
+    REQUIRE(buffer.size() == 59);
+
+    packets = generator.createPackets(buffer, {});
+
+    REQUIRE_NOTHROW(std::get<StartDataTransferPacket>(packets.at(0)));
+    auto packet0 = std::get<StartDataTransferPacket>(packets.at(0));
+    CHECK(+packet0.header.sequenceId_0 == 0x00);
+    CHECK(+packet0.header.sequenceId_1 == 0x00);
+
+    REQUIRE_NOTHROW(std::get<DataPacket>(packets.at(1)));
+    auto packet1 = std::get<DataPacket>(packets.at(1));
+    CHECK(+packet1.header.sequenceId_0 == 0x01);
+    CHECK(+packet1.header.sequenceId_1 == 0x00);
+
+    REQUIRE_NOTHROW(std::get<StopDataTransferPacket>(packets.at(2)));
+    auto packet2 = std::get<StopDataTransferPacket>(packets.at(2));
+    CHECK(+packet2.header.sequenceId_0 == 0x02);
+    CHECK(+packet2.header.sequenceId_1 == 0x00);
+}
+
+TEST_CASE_METHOD(TestFixture, "Print packets")
+{
+    trompeloeil::sequence seq;
+    auto buffer = generateRandomBuffer(10);
+    auto packets = generator.createPackets(buffer, {false, true, false});
+    CHECK(packets.size() == 3);
+    REQUIRE_CALL(printer, print(ANY(std::string_view))).TIMES(3);
+    generator.printPackets(packets);
+}
+
+TEST_CASE("Test byte swap")
+{
+    uint16_t x = 291;
+    x = byteSwap16(x);
+    CHECK(x == 8961);
+
+    uint32_t y = 291;
+    y = byteSwap32(y);
+    CHECK(y == 587268096);
+}

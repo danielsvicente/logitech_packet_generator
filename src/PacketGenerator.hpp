@@ -1,5 +1,6 @@
 #pragma once
 
+#include "IPrinter.hpp"
 #include "Packet.hpp"
 #include "Utils.hpp"
 #include <cstddef>
@@ -16,11 +17,10 @@ namespace Logi
     class PacketGenerator
     {
     public:
-        
         static constexpr int s_maxDataBytes = 59;
 
-        PacketGenerator(uint8_t softwareId);
-        PacketGenerator(uint8_t softwareId, Endianess endianess);
+        PacketGenerator(uint8_t softwareId, IPrinter& printer);
+        PacketGenerator(uint8_t softwareId, Endianess endianess, IPrinter& printer);
 
         /// Creates packets for the input data.
         ///
@@ -35,40 +35,26 @@ namespace Logi
         /// \return The generated packets
         Packets createPackets(const std::vector<std::byte>& buffer, const EndPacketFlags& flags);
 
-        void printPackets();
+        /// Prints the input packets.
+        ///
+        /// \param packets The packets to be print.
+        void printPackets(const Packets& packets);
 
     private:
 
-        PacketHeader createPacket(PacketType type, uint16_t sequenceId);
-
-        /// Encodes data into a StartDataTransferPacket.
-        ///
-        /// \param softwareId ....
-        /// \param sequenceId ....
-        /// \param totalPayloadSize ....
-        /// \return The packet of type StartDataTransferPacket.
-        StartDataTransferPacket createPacket(uint16_t sequenceId, uint32_t totalPayloadSize);
-
-        /// Encodes data into a DataPacket.
-        ///
-        /// \param softwareId ....
-        /// \param sequenceId ....
-        /// \param payloadSize ....
-        /// \param data ....
-        /// \return The packet of type DataPacket.
-        DataPacket createPacket(uint16_t sequenceId, uint8_t payloadSize, const std::byte* data);
-
-        /// Encodes data into a StopDataTransferPacket.
-        ///
-        /// \param softwareId ....
-        /// \param sequenceId ....
-        /// \param flags ....
-        /// \return The packet of type StopDataTransferPacket.
-        StopDataTransferPacket createPacket(uint16_t sequenceId, const EndPacketFlags& flags);
+        PacketHeader createPacket(PacketType type);
+        StartDataTransferPacket createPacket(uint32_t totalPayloadSize);
+        DataPacket createPacket(uint8_t payloadSize, const std::byte* data);
+        StopDataTransferPacket createPacket(const EndPacketFlags& flags);
+        void printPacket(const StartDataTransferPacket& packet);
+        void printPacket(const DataPacket& packet);
+        void printPacket(const StopDataTransferPacket& packet);
+        void incrementSequenceId();
 
         uint8_t m_softwareId{0};
         uint16_t m_packetSequenceId{0};
         bool m_swapByteOrder{false};
+        IPrinter& m_printer;
     };
 
 } // namespace Logi
